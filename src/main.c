@@ -12,13 +12,13 @@
 
 #define COLOR_BACKGROUND BLACK
 #define COLOR_BOID RED
-#define NUM_BOIDS 60
-#define BOID_SIZE 8.0f
-#define BOID_MAX_SPEED 4.0f
+#define NUM_BOIDS 500
+#define BOID_SIZE 4.0f
+#define BOID_MAX_SPEED 8.0f
 #define BOID_FOV_RADIUS 100.0f
-#define SEPARATION_SCALE_FACTOR 0.9f
-#define ALIGNMENT_SCALE_FACTOR 0.015f
-#define COHESION_SCALE_FACTOR 0.009f
+#define SEPARATION_SCALE_FACTOR 0.6f
+#define ALIGNMENT_SCALE_FACTOR 0.125f
+#define COHESION_SCALE_FACTOR 0.05f
 
 float random_float(float min, float max) {
     float scale = (float)rand() / (float)RAND_MAX;
@@ -75,66 +75,75 @@ bool is_in_flock(Boid *other, Boid *this) {
     return distance < BOID_FOV_RADIUS && dot > -0.75f;
 }
 
+Vector2 wrap_around_edges(Vector2 position) {
+    Vector2 screen_limit = {GetScreenWidth(), GetScreenHeight()};
+    if (position.x < 0) {
+        position.x = screen_limit.x;
+    } else if (position.x > screen_limit.x) {
+        position.x = 0;
+    }
+    if (position.y < 0) {
+        position.y = screen_limit.y;
+    } else if (position.y > screen_limit.y) {
+        position.y = 0;
+    }
+    return position;
+}
+
 Vector2 separation(Boids *boids, size_t index_boid) {
     Boid *this = &boids->items[index_boid];
     size_t flock_size = 0;
-    Vector2 avg_repelling = Vector2Zero();
+    Vector2 separation = Vector2Zero();
     for (size_t i = 0; i < boids->count; i++) {
         Boid *other = &boids->items[i];
         if (i != index_boid && is_in_flock(other, this)) {
-            Vector2 difference = Vector2Subtract(other->position, this->position);
+            Vector2 difference = Vector2Subtract(this->position, other->position);
             float distance = Vector2Length(difference);
-            Vector2 repelling = Vector2Scale(difference, 1.0f / (distance));
-            avg_repelling = Vector2Add(avg_repelling, repelling);
+            Vector2 repelling = Vector2Scale(Vector2Normalize(difference), 1.0f / distance * distance);
+            separation = Vector2Add(separation, repelling);
             flock_size++;
         }
     }
     if (flock_size > 0) {
-        avg_repelling = Vector2Scale(avg_repelling, 1.0f / (float)flock_size);
-    } else {
-        return Vector2Zero();
+        separation = Vector2Scale(separation, 1.0f / (float)flock_size);
     }
-    Vector2 separation = avg_repelling;
     return Vector2Scale(separation, SEPARATION_SCALE_FACTOR);
 }
 
 Vector2 alignment(Boids *boids, size_t index_boid) {
     Boid *this = &boids->items[index_boid];
     size_t flock_size = 0;
-    Vector2 avg_velocity = Vector2Zero();
+    Vector2 alignment = Vector2Zero();
     for (size_t i = 0; i < boids->count; i++) {
         Boid *other = &boids->items[i];
         if (i != index_boid && is_in_flock(other, this)) {
-            avg_velocity = Vector2Add(avg_velocity, other->velocity);
+            alignment = Vector2Add(alignment, other->velocity);
             flock_size++;
         }
     }
     if (flock_size > 0) {
-        avg_velocity = Vector2Scale(avg_velocity, 1.0f / (float)flock_size);
-    } else {
-        return Vector2Zero();
+        alignment = Vector2Scale(alignment, 1.0f / (float)flock_size);
     }
-    Vector2 alignment = Vector2Subtract(avg_velocity, this->velocity);
     return Vector2Scale(alignment, ALIGNMENT_SCALE_FACTOR);
 }
 
 Vector2 cohesion(Boids *boids, size_t index_boid) {
     Boid *this = &boids->items[index_boid];
     size_t flock_size = 0;
-    Vector2 avg_position = Vector2Zero();
+    Vector2 cohesion = Vector2Zero();
     for (size_t i = 0; i < boids->count; i++) {
         Boid *other = &boids->items[i];
         if (i != index_boid && is_in_flock(other, this)) {
-            avg_position = Vector2Add(avg_position, other->position);
+            cohesion = Vector2Add(cohesion, other->position);
             flock_size++;
         }
     }
     if (flock_size > 0) {
-        avg_position = Vector2Scale(avg_position, 1.0f / (float)flock_size);
-    } else {
-        return Vector2Zero();
+        cohesion = Vector2Scale(cohesion, 1.0f / (float)flock_size);
+        Vector2 diff_to_target = Vector2Subtract(cohesion, this->position);
+        cohesion = Vector2Scale(Vector2Normalize(diff_to_target), BOID_MAX_SPEED);
+        cohesion = Vector2Subtract(cohesion, this->velocity);
     }
-    Vector2 cohesion = Vector2Subtract(avg_position, this->position);
     return Vector2Scale(cohesion, COHESION_SCALE_FACTOR);
 }
 
@@ -149,19 +158,12 @@ void update_boids(Boids *boids) {
     for (size_t i = 0; i < boids->count; i++) {
         Boid *boid = &boids->items[i];
         Vector2 new_velocity = Vector2Add(boid->velocity, boid->acceleration);
-        boid->velocity = Vector2Scale(Vector2Normalize(new_velocity), BOID_MAX_SPEED);
+        if (Vector2Length(new_velocity) > BOID_MAX_SPEED) {
+            new_velocity = Vector2Scale(Vector2Normalize(new_velocity), BOID_MAX_SPEED);
+        }
+        boid->velocity = new_velocity;
         boid->position = Vector2Add(boid->position, boid->velocity);
-        Vector2 screen_limit = {GetScreenWidth(), GetScreenHeight()};
-        if (boid->position.x < 0) {
-            boid->position.x = screen_limit.x;
-        } else if (boid->position.x > screen_limit.x) {
-            boid->position.x = 0;
-        }
-        if (boid->position.y < 0) {
-            boid->position.y = screen_limit.y;
-        } else if (boid->position.y > screen_limit.y) {
-            boid->position.y = 0;
-        }
+        boid->position = wrap_around_edges(boid->position);
     }
 }
 
@@ -184,12 +186,12 @@ void draw_boids(Boids *boids) {
     for (size_t i = 0; i < boids->count; i++) {
         draw_boid(boids->items[i], RED);
     }
-    for (size_t i = 1; i < boids->count; i++) {
-        if (is_in_flock(&boids->items[i], &boids->items[0])) {
-            draw_boid(boids->items[i], GREEN);
-        }
-    }
-    DrawCircleLinesV(boids->items[0].position, BOID_FOV_RADIUS, GREEN);
+    /* for (size_t i = 1; i < boids->count; i++) { */
+    /*     if (is_in_flock(&boids->items[i], &boids->items[0])) { */
+    /*         draw_boid(boids->items[i], GREEN); */
+    /*     } */
+    /* } */
+    /* DrawCircleLinesV(boids->items[0].position, BOID_FOV_RADIUS, GREEN); */
 }
 
 int main() {
@@ -202,6 +204,7 @@ int main() {
         insert_boid((Boid){
             .position = { GetRandomValue(0, GetScreenWidth()),
                           GetRandomValue(0, GetScreenHeight()) },
+            /* .velocity = random_vector2(GetRandomValue(0, BOID_MAX_SPEED)), */
             .velocity = random_vector2(BOID_MAX_SPEED),
             .acceleration = Vector2Zero(),
         }, &boids);
