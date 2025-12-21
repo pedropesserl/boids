@@ -7,8 +7,8 @@ RAYLIB_PATH = /home/pedro/software/raylib/src
 CFLAGS = -Iinclude -I$(RAYLIB_PATH) -Wall -Wextra -Wshadow -g
 LFLAGS = -L$(RAYLIB_PATH) -lraylib -lm
 
-_SRC = main
-_DEPS =
+_SRC = main boids
+_DEPS = boids.h
 
 SRC = $(_SRC:%=$(SRC_PATH)/%.c)
 DEPS = $(_DEPS:%=$(INC_PATH)/%) $(RAYLIB_PATH)/raylib.h $(RAYLIB_PATH)/raymath.h
