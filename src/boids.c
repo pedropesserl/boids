@@ -13,11 +13,13 @@ static Vector2 random_vector2(float magnitude) {
     return Vector2Scale(Vector2Normalize(rand), magnitude);
 }
 
-static bool is_in_flock(Boid *other, Boid *this) {
+static bool is_in_flock(Boid *other, Boid *this, Boids *boids) {
     Vector2 difference = Vector2Subtract(other->position, this->position);
-    float dot = Vector2DotProduct(Vector2Normalize(this->velocity), Vector2Normalize(difference));
     float distance = Vector2Length(difference);
-    return distance < BOID_FOV_RADIUS && dot > -0.75f;
+    float dot = Vector2DotProduct(Vector2Normalize(this->velocity), Vector2Normalize(difference));
+    // -1 <= dot <= 1  <=>  0 <= dot + 1 <= 2  <=>  0 <= (dot + 1) / 2 <= 1
+    float percentage = 1.0f - (dot + 1.0f) / 2.0f; // dot = -1 => percentage = 100% ; dot = 1 => percentage = 0%
+    return distance < boids->fov_radius && percentage < boids->fov_percentage;
 }
 
 static Vector2 wrap_around_edges(Vector2 position) {
@@ -41,7 +43,7 @@ static Vector2 separation(Boids *boids, size_t index_boid) {
     Vector2 separation = Vector2Zero();
     for (size_t i = 0; i < boids->count; i++) {
         Boid *other = &boids->items[i];
-        if (i != index_boid && is_in_flock(other, this)) {
+        if (i != index_boid && is_in_flock(other, this, boids)) {
             Vector2 difference = Vector2Subtract(this->position, other->position);
             float distance = Vector2Length(difference);
             Vector2 repelling = Vector2Scale(Vector2Normalize(difference), 1.0f / distance * distance);
@@ -52,7 +54,7 @@ static Vector2 separation(Boids *boids, size_t index_boid) {
     if (flock_size > 0) {
         separation = Vector2Scale(separation, 1.0f / (float)flock_size);
     }
-    return Vector2Scale(separation, SEPARATION_SCALE_FACTOR);
+    return Vector2Scale(separation, boids->separation_intensity);
 }
 
 static Vector2 alignment(Boids *boids, size_t index_boid) {
@@ -61,7 +63,7 @@ static Vector2 alignment(Boids *boids, size_t index_boid) {
     Vector2 alignment = Vector2Zero();
     for (size_t i = 0; i < boids->count; i++) {
         Boid *other = &boids->items[i];
-        if (i != index_boid && is_in_flock(other, this)) {
+        if (i != index_boid && is_in_flock(other, this, boids)) {
             alignment = Vector2Add(alignment, other->velocity);
             flock_size++;
         }
@@ -69,7 +71,7 @@ static Vector2 alignment(Boids *boids, size_t index_boid) {
     if (flock_size > 0) {
         alignment = Vector2Scale(alignment, 1.0f / (float)flock_size);
     }
-    return Vector2Scale(alignment, ALIGNMENT_SCALE_FACTOR);
+    return Vector2Scale(alignment, boids->alignment_intensity);
 }
 
 static Vector2 cohesion(Boids *boids, size_t index_boid) {
@@ -78,7 +80,7 @@ static Vector2 cohesion(Boids *boids, size_t index_boid) {
     Vector2 cohesion = Vector2Zero();
     for (size_t i = 0; i < boids->count; i++) {
         Boid *other = &boids->items[i];
-        if (i != index_boid && is_in_flock(other, this)) {
+        if (i != index_boid && is_in_flock(other, this, boids)) {
             cohesion = Vector2Add(cohesion, other->position);
             flock_size++;
         }
@@ -89,7 +91,7 @@ static Vector2 cohesion(Boids *boids, size_t index_boid) {
         cohesion = Vector2Scale(Vector2Normalize(diff_to_target), BOID_MAX_SPEED);
         cohesion = Vector2Subtract(cohesion, this->velocity);
     }
-    return Vector2Scale(cohesion, COHESION_SCALE_FACTOR);
+    return Vector2Scale(cohesion, boids->cohesion_intensity);
 }
 
 static void draw_boid(Boid boid, Color color) {
@@ -101,12 +103,11 @@ static void draw_boid(Boid boid, Color color) {
     DrawTriangle(vertex1, vertex2, vertex3, color);
 }
 
-Boid create_boid(void) {
+static Boid create_boid(void) {
     return (Boid){
         .position = { GetRandomValue(0, GetScreenWidth()),
                       GetRandomValue(0, GetScreenHeight()) },
         .velocity = random_vector2(GetRandomValue(0, BOID_MAX_SPEED)),
-        /* .velocity = random_vector2(BOID_MAX_SPEED), */
         .acceleration = Vector2Zero(),
     };
 }
@@ -125,6 +126,23 @@ void insert_boid(Boid boid, Boids *boids) {
     }
     boids->items[boids->count] = boid;
     boids->count++;
+}
+
+Boids create_boids(int num_boids) {
+    Boids boids = {
+        .count = 0,
+        .capacity = 0,
+        .items = NULL,
+        .fov_radius = BOID_BASE_FOV_RADIUS,
+        .fov_percentage = 0.75f,
+        .separation_intensity = BOID_BASE_SEPARATION_INTENSITY,
+        .alignment_intensity = BOID_BASE_ALIGNMENT_INTENSITY,
+        .cohesion_intensity = BOID_BASE_COHESION_INTENSITY,
+    };
+    for (int i = 0; i < num_boids; i++) {
+        insert_boid(create_boid(), &boids);
+    }
+    return boids;
 }
 
 void destroy_boids(Boids *boids) {
